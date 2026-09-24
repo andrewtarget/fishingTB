@@ -1,0 +1,12 @@
+# Copy this file to config.yaml and fill in your credentials.
+# Easiest: run `python main.py login` (or type /login in TUI) and scan QR with 百度 App.
+
+bduss: ""
+stoken: ""
+
+terminal_title: npm run dev
+
+recent_forums: []
+
+# auto | sixel | braille | halfblock
+image_renderer: auto

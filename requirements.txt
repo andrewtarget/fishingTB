@@ -1,0 +1,7 @@
+aiotieba>=4.7.0
+textual>=0.80.0
+pyyaml>=6.0
+pillow>=10.3.0
+rich>=13.0.0
+# optional: Sixel on Windows Terminal; falls back to built-in half-block if incompatible
+textual-image[textual]>=0.8.0

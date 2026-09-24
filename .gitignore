@@ -1,0 +1,29 @@
+# Secrets — never commit
+config.yaml
+bduss.txt
+
+# Generated runtime data (image cache; cleared each start)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local cache
+cache/
+*.log
