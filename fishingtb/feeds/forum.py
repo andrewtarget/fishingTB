@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from aiotieba.enums import ThreadSortType
 
-from fishingtb.models import PostItem, ThreadItem
+from fishingtb.models import CommentItem, PostItem, ThreadItem
 from fishingtb.session import TiebaSession
 
 DEFAULT_THREAD_RN = 50
 DEFAULT_POST_RN = 40
+
+_bawu_id_cache: dict[int, tuple[frozenset[int], frozenset[int]]] = {}
 
 
 def _author_name(obj) -> str:
@@ -103,16 +105,127 @@ def _extract_post_text(post) -> str:
     return "\n".join(parts).strip()
 
 
-def _post_to_item(post) -> PostItem:
+def _author_id(obj) -> int:
+    uid = int(getattr(obj, "author_id", 0) or 0)
+    if uid:
+        return uid
+    user = getattr(obj, "user", None)
+    if user is not None:
+        return int(getattr(user, "user_id", 0) or 0)
+    return 0
+
+
+def _bawu_role_label(
+    user_id: int,
+    *,
+    admin_ids: frozenset[int],
+    staff_ids: frozenset[int],
+    is_bawu: bool,
+) -> str:
+    if user_id and user_id in admin_ids:
+        return "吧主"
+    if user_id and user_id in staff_ids:
+        return "吧务"
+    if is_bawu:
+        return "吧务"
+    return ""
+
+
+def _author_tags(
+    obj,
+    *,
+    admin_ids: frozenset[int],
+    staff_ids: frozenset[int],
+) -> list[str]:
+    tags: list[str] = []
+    if getattr(obj, "is_thread_author", False):
+        tags.append("楼主")
+    user = getattr(obj, "user", None)
+    uid = _author_id(obj)
+    is_bawu = bool(getattr(user, "is_bawu", False))
+    role = _bawu_role_label(
+        uid,
+        admin_ids=admin_ids,
+        staff_ids=staff_ids,
+        is_bawu=is_bawu,
+    )
+    if role:
+        tags.append(role)
+    ip = (getattr(user, "ip", None) or "").strip()
+    if ip:
+        tags.append(ip)
+    return tags
+
+
+async def _bawu_id_sets(
+    session: TiebaSession,
+    *,
+    fid: int,
+    fname: str,
+) -> tuple[frozenset[int], frozenset[int]]:
+    cache_key = fid or hash(fname)
+    cached = _bawu_id_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    admin_ids: set[int] = set()
+    staff_ids: set[int] = set()
+    target: str | int = fid if fid else fname
+    if not target:
+        empty = (frozenset(), frozenset())
+        return empty
+
+    try:
+        bawu = await session.client.get_bawu_info(target)
+        if getattr(bawu, "err", None) is not None:
+            empty = (frozenset(), frozenset())
+            _bawu_id_cache[cache_key] = empty
+            return empty
+        for u in bawu.admin + bawu.profess_admin + bawu.fourth_admin:
+            if u.user_id:
+                admin_ids.add(u.user_id)
+        for u in (
+            bawu.manager
+            + bawu.voice_editor
+            + bawu.image_editor
+            + bawu.video_editor
+            + bawu.broadcast_editor
+            + bawu.journal_chief_editor
+            + bawu.journal_editor
+        ):
+            if u.user_id and u.user_id not in admin_ids:
+                staff_ids.add(u.user_id)
+    except Exception:
+        pass
+
+    result = (frozenset(admin_ids), frozenset(staff_ids))
+    _bawu_id_cache[cache_key] = result
+    return result
+
+
+def _post_to_item(
+    post,
+    *,
+    admin_ids: frozenset[int],
+    staff_ids: frozenset[int],
+) -> PostItem:
     text = _extract_post_text(post)
-    comments: list[str] = []
+    comments: list[CommentItem] = []
     for c in getattr(post, "comments", None) or []:
         ctext = _extract_post_text(c) if hasattr(c, "contents") else (
             (getattr(c, "text", "") or "").strip()
         )
         if ctext:
-            author = _author_name(c)
-            comments.append(f"  └ {author}: {ctext[:200]}")
+            comments.append(
+                CommentItem(
+                    author=_author_name(c),
+                    text=ctext[:200],
+                    create_time=int(getattr(c, "create_time", 0) or 0),
+                    author_tags=_author_tags(
+                        c, admin_ids=admin_ids, staff_ids=staff_ids
+                    ),
+                )
+            )
     urls = _extract_images(post)
     return PostItem(
         pid=int(getattr(post, "pid", 0) or 0),
@@ -122,6 +235,8 @@ def _post_to_item(post) -> PostItem:
         img_count=len(urls),
         image_urls=urls,
         comments=comments,
+        author_tags=_author_tags(post, admin_ids=admin_ids, staff_ids=staff_ids),
+        create_time=int(getattr(post, "create_time", 0) or 0),
     )
 
 
@@ -171,7 +286,14 @@ async def get_thread_posts(
     if thread is not None:
         title = getattr(thread, "title", "") or getattr(thread, "text", "") or ""
 
-    items = [_post_to_item(p) for p in posts]
+    forum = getattr(posts, "forum", None)
+    fid = int(getattr(forum, "fid", 0) or 0)
+    fname = (getattr(forum, "fname", None) or "").strip()
+    admin_ids, staff_ids = await _bawu_id_sets(session, fid=fid, fname=fname)
+
+    items = [
+        _post_to_item(p, admin_ids=admin_ids, staff_ids=staff_ids) for p in posts
+    ]
     # Ensure floor 1 shows title when body is thin
     if items and title:
         first = items[0]

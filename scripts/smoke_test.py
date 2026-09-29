@@ -7,7 +7,9 @@ from pathlib import Path
 from unittest import mock
 
 from fishingtb import config as cfg
-from fishingtb.models import PostItem, ThreadItem
+from datetime import datetime, timedelta
+
+from fishingtb.models import CommentItem, PostItem, ThreadItem, format_event_time
 from fishingtb.ui.app import FishingApp
 
 
@@ -50,6 +52,23 @@ def test_models() -> None:
     assert t.last_time_str
     p = PostItem(pid=1, floor=1, author="a", text="hi", img_count=2)
     assert "[图片 x2]" in p.body
+    p2 = PostItem(
+        pid=2,
+        floor=2,
+        author="b",
+        text="x",
+        author_tags=["楼主", "吧主", "北京"],
+    )
+    assert p2.meta_line == "#2 · b · 楼主 · 吧主 · 北京"
+    fixed = datetime(2026, 9, 29, 15, 0, 0)
+    assert format_event_time(
+        int(fixed.timestamp()), now=fixed
+    ) == "今天 15:00"
+    assert format_event_time(
+        int((fixed - timedelta(days=1)).timestamp()), now=fixed
+    ) == "昨天 15:00"
+    c = CommentItem(author="u", text="hi", create_time=0)
+    assert c.time_str == ""
 
 
 def test_app_construct() -> None:

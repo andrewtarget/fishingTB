@@ -48,17 +48,41 @@ class ThreadDetailScreen(Screen):
         padding: 0 1 1 1;
         border-bottom: tall $surface;
     }
-    .post-meta {
+    .post-meta-row {
+        height: auto;
+        width: 100%;
+    }
+    .post-meta-main {
+        width: 1fr;
         height: auto;
         color: $text-muted;
+    }
+    .post-time {
+        width: auto;
+        max-width: 18;
+        height: auto;
+        color: $text-muted 50%;
+        text-style: dim italic;
+        content-align: right middle;
     }
     .post-body {
         height: auto;
         width: 100%;
         color: $text;
     }
-    .post-comment {
+    .comment-head {
         height: auto;
+        width: 100%;
+    }
+    .comment-meta {
+        width: 1fr;
+        height: auto;
+        color: $text-muted;
+    }
+    .comment-body {
+        height: auto;
+        width: 100%;
+        padding-left: 2;
         color: $text-muted;
     }
     .img-row {
@@ -111,6 +135,20 @@ class ThreadDetailScreen(Screen):
     def _page_image_urls(self) -> list[str]:
         return [u for p in self.posts for u in p.image_urls]
 
+    async def _mount_time_row(
+        self,
+        parent: Vertical,
+        *,
+        main: str,
+        time_str: str,
+        main_class: str,
+    ) -> None:
+        row = Horizontal(classes="post-meta-row")
+        await parent.mount(row)
+        await row.mount(Static(main, classes=main_class, markup=False))
+        if time_str:
+            await row.mount(Static(time_str, classes="post-time", markup=False))
+
     @work(exclusive=True)
     async def load_page(self) -> None:
         if self._loading:
@@ -135,12 +173,11 @@ class ThreadDetailScreen(Screen):
             for p in items:
                 block = Vertical(classes="post-block")
                 await scroll.mount(block)
-                await block.mount(
-                    Static(
-                        f"#{p.floor} · {p.author}",
-                        classes="post-meta",
-                        markup=False,
-                    )
+                await self._mount_time_row(
+                    block,
+                    main=p.meta_main,
+                    time_str=p.time_str,
+                    main_class="post-meta-main",
                 )
                 body = p.body if p.body.strip() else "(无文字内容)"
                 await block.mount(
@@ -159,8 +196,21 @@ class ThreadDetailScreen(Screen):
                         setattr(btn, "image_url", url)
                         await row.mount(btn)
                 for c in p.comments:
+                    head = Horizontal(classes="comment-head")
+                    await block.mount(head)
+                    await head.mount(
+                        Static(
+                            f"  └ {c.author_line}",
+                            classes="comment-meta",
+                            markup=False,
+                        )
+                    )
+                    if c.time_str:
+                        await head.mount(
+                            Static(c.time_str, classes="post-time", markup=False)
+                        )
                     await block.mount(
-                        Static(c, classes="post-comment", markup=False)
+                        Static(c.text, classes="comment-body", markup=False)
                     )
             nonempty = sum(1 for p in items if p.text.strip() or p.image_urls)
             self._set_status(
